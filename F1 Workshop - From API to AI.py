@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "1"
+# ///
 # DBTITLE 1,Workshop Introduction
 # MAGIC %md
 # MAGIC # Formula 1 Analytics Workshop — From API to AI with Databricks
@@ -33,7 +37,7 @@
 # MAGIC 2. **Transform** and enrich the data into **Silver** tables (joins, type casting, derived columns)
 # MAGIC 3. **Aggregate** into **Gold** tables with driver stats, circuit characteristics, and constructor performance
 # MAGIC
-# MAGIC **Target schema:** `hackathon.f1_workshop`  
+# MAGIC **Target schema:** `f1_genie_code.f1_workshop`  
 # MAGIC **Data range:** 2023–2025 seasons (\~24 races per year)
 
 # COMMAND ----------
@@ -46,7 +50,7 @@ from pyspark.sql.types import *
 
 # ---------- Configuration ----------
 BASE_URL = "https://api.openf1.org/v1"
-CATALOG = "hackathon"
+CATALOG = "f1_genie_code"
 SCHEMA = "f1_workshop"
 YEARS = [2023, 2024, 2025]
 
@@ -55,9 +59,14 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
 
 # Helper: fetch data from OpenF1
 def fetch_openf1(endpoint, params=None, verbose=True):
-    """Fetch data from an OpenF1 endpoint. Returns a list of dicts."""
+    """Fetch data from an OpenF1 endpoint. Returns a list of dicts.
+    Gracefully returns [] on 404 (missing data for that session)."""
     url = f"{BASE_URL}/{endpoint}"
     resp = requests.get(url, params=params, timeout=30)
+    if resp.status_code == 404:
+        if verbose:
+            print(f"  {endpoint} ({params}): 404 — skipped")
+        return []
     resp.raise_for_status()
     data = resp.json()
     if verbose:
@@ -69,12 +78,12 @@ def write_bronze(data, table_name):
     """Write raw API data to a bronze Delta table."""
     full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
     if not data:
-        print(f"  ⚠ No data for {full_name}, skipping.")
+        print(f"  \u26a0 No data for {full_name}, skipping.")
         return
     df = spark.createDataFrame(data)
     df.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(full_name)
     count = spark.table(full_name).count()
-    print(f"  ✓ {full_name}: {count} rows, {len(df.columns)} columns")
+    print(f"  \u2713 {full_name}: {count} rows, {len(df.columns)} columns")
 
 print(f"Schema ready: {CATALOG}.{SCHEMA}")
 print(f"API base URL: {BASE_URL}")
@@ -249,14 +258,12 @@ display(spark.table(f"{CATALOG}.{SCHEMA}.bronze_weather").limit(5))
 bronze_sessions = spark.table(f"{CATALOG}.{SCHEMA}.bronze_sessions")
 bronze_meetings = spark.table(f"{CATALOG}.{SCHEMA}.bronze_meetings")
 
+# Sessions already has country_name, country_code, year, location, circuit_short_name.
+# From meetings we only need meeting_name (unique to that table).
 silver_sessions = bronze_sessions.join(
     bronze_meetings.select(
         F.col("meeting_key"),
-        F.col("meeting_name"),
-        F.col("location").alias("meeting_location"),
-        F.col("country_name"),
-        F.col("country_code"),
-        F.col("year")
+        F.col("meeting_name")
     ),
     on="meeting_key",
     how="left"
@@ -265,7 +272,7 @@ silver_sessions = bronze_sessions.join(
 
 silver_sessions.write.mode("overwrite").option("overwriteSchema", "true") \
     .saveAsTable(f"{CATALOG}.{SCHEMA}.silver_sessions")
-print(f"✓ silver_sessions: {silver_sessions.count()} rows")
+print(f"\u2713 silver_sessions: {silver_sessions.count()} rows")
 
 # ---------- silver_laps: laps + driver/team + session context ----------
 bronze_laps = spark.table(f"{CATALOG}.{SCHEMA}.bronze_laps")
@@ -276,7 +283,8 @@ drivers_deduped = bronze_drivers.dropDuplicates(["session_key", "driver_number"]
         "session_key", "driver_number",
         F.col("full_name").alias("driver_name"),
         F.col("name_acronym").alias("driver_code"),
-        "team_name", "team_colour", "country_code"
+        "team_name", "team_colour",
+        F.col("country_code").alias("driver_country_code")
     )
 
 silver_laps = bronze_laps \
@@ -284,7 +292,8 @@ silver_laps = bronze_laps \
     .join(
         spark.table(f"{CATALOG}.{SCHEMA}.silver_sessions").select(
             "session_key", "session_type", "meeting_name",
-            "meeting_location", "country_name", "year",
+            F.col("location").alias("meeting_location"),
+            "country_name", "year",
             F.col("circuit_short_name").alias("circuit")
         ),
         on="session_key",
@@ -312,7 +321,7 @@ silver_laps_clean = silver_laps.filter(
 silver_laps_clean.write.mode("overwrite").option("overwriteSchema", "true") \
     .saveAsTable(f"{CATALOG}.{SCHEMA}.silver_laps")
 
-print(f"✓ silver_laps: {silver_laps_clean.count()} rows (filtered from {silver_laps.count()})")
+print(f"\u2713 silver_laps: {silver_laps_clean.count()} rows (filtered from {silver_laps.count()})")
 display(silver_laps_clean.select(
     "meeting_name", "circuit", "driver_name", "team_name",
     "lap_number", "duration_sector_1", "duration_sector_2", "duration_sector_3",
