@@ -1,90 +1,41 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "1"
+# ///
 # DBTITLE 0,Config Overview
 # MAGIC %md
 # MAGIC # Shared Configuration & Utilities
 # MAGIC
-# MAGIC This notebook defines everything shared across the data engineering pipeline:
-# MAGIC - **Constants** — catalog, schema, API base URL, seasons
-# MAGIC - **`fetch_openf1()`** — fetch data from any OpenF1 endpoint with error handling
-# MAGIC - **`write_bronze()`** — write raw API data to a Delta table
+# MAGIC All shared constants and helper functions live in **`config.py`** (same directory).  
+# MAGIC Other notebooks import it as a standard Python module:
 # MAGIC
-# MAGIC Run this notebook first, or include it with `%run ./00_Config` from any sibling notebook.
+# MAGIC ```python
+# MAGIC from config import *
+# MAGIC ```
+# MAGIC
+# MAGIC ### What's in `config.py`
+# MAGIC | Symbol | Type | Description |
+# MAGIC |---|---|---|
+# MAGIC | `BASE_URL` | `str` | OpenF1 API base URL |
+# MAGIC | `CATALOG`, `SCHEMA`, `FULL_SCHEMA` | `str` | Unity Catalog target |
+# MAGIC | `YEARS` | `list` | Seasons to ingest |
+# MAGIC | `fetch_openf1()` | function | Fetch JSON from any OpenF1 endpoint (handles 404s) |
+# MAGIC | `write_bronze()` | function | Write a list of dicts to a bronze Delta table |
+# MAGIC | `table()` | function | Shorthand to read a table from the workshop schema |
+# MAGIC | `init_schema()` | function | Create the target schema if it doesn't exist |
 
 # COMMAND ----------
 
 # DBTITLE 0,Imports
-import requests
-import json
-from pyspark.sql import functions as F
-from pyspark.sql.types import *
+from config import *
+
+init_schema()
 
 # COMMAND ----------
 
 # DBTITLE 0,Constants
-BASE_URL = "https://api.openf1.org/v1"
-CATALOG  = "f1_genie_code"
-SCHEMA   = "f1_workshop"
-YEARS    = [2023, 2024, 2025]
-
-FULL_SCHEMA = f"{CATALOG}.{SCHEMA}"
-
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {FULL_SCHEMA}")
-print(f"Schema : {FULL_SCHEMA}")
-print(f"API    : {BASE_URL}")
-print(f"Seasons: {YEARS}")
-
-# COMMAND ----------
-
-# DBTITLE 0,fetch_openf1()
-def fetch_openf1(endpoint: str, params: dict = None, verbose: bool = True) -> list:
-    """
-    Fetch JSON data from an OpenF1 API endpoint.
-
-    Returns a list of dicts. Gracefully returns [] on HTTP 404
-    (some sessions have no data for certain endpoints).
-    """
-    url  = f"{BASE_URL}/{endpoint}"
-    resp = requests.get(url, params=params, timeout=30)
-
-    if resp.status_code == 404:
-        if verbose:
-            print(f"  {endpoint} ({params}): 404 — skipped")
-        return []
-
-    resp.raise_for_status()
-    data = resp.json()
-
-    if verbose:
-        print(f"  {endpoint} ({params}): {len(data)} records")
-    return data
-
-# COMMAND ----------
-
-# DBTITLE 0,write_bronze()
-def write_bronze(data: list, table_name: str) -> None:
-    """
-    Write a list of dicts to a bronze Delta table.
-
-    Overwrites the table each time (full-refresh pattern).
-    Prints row count and column count on success.
-    """
-    full_name = f"{FULL_SCHEMA}.{table_name}"
-
-    if not data:
-        print(f"  ⚠ No data for {full_name}, skipping.")
-        return
-
-    df = spark.createDataFrame(data)
-    df.write.mode("overwrite") \
-        .option("overwriteSchema", "true") \
-        .saveAsTable(full_name)
-
-    count = spark.table(full_name).count()
-    print(f"  ✓ {full_name}: {count:,} rows, {len(df.columns)} columns")
-
-# COMMAND ----------
-
-# DBTITLE 0,table()
-def table(name: str):
-    """Shorthand to read a table from our workshop schema."""
-    return spark.table(f"{FULL_SCHEMA}.{name}")
+# Quick smoke test
+data = fetch_openf1("meetings", {"year": 2024})
+print(f"fetch_openf1 works: {len(data)} meetings")
+print(f"table() works: {table('bronze_meetings').count()} rows in bronze_meetings")

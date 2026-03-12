@@ -18,7 +18,7 @@
 # COMMAND ----------
 
 # DBTITLE 0,Load Config
-./00_Config
+from config import *
 
 # COMMAND ----------
 

@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "1"
+# ///
 # DBTITLE 0,Bronze Overview
 # MAGIC %md
 # MAGIC # Bronze Layer — Raw API Ingestion
@@ -18,7 +22,9 @@
 # COMMAND ----------
 
 # DBTITLE 0,Load Config
-./00_Config
+from config import *
+
+init_schema()
 
 # COMMAND ----------
 
