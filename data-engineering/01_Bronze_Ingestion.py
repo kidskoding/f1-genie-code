@@ -21,8 +21,14 @@
 
 # COMMAND ----------
 
+# DBTITLE 1,Install Dependencies
+# MAGIC %pip install tqdm -q
+
+# COMMAND ----------
+
 # DBTITLE 0,Load Config
 from config import *
+from tqdm import tqdm
 
 init_schema()
 
@@ -37,13 +43,12 @@ init_schema()
 
 # DBTITLE 0,Ingest Meetings
 all_meetings = []
-for year in YEARS:
-    data = fetch_openf1("meetings", {"year": year})
+for year in tqdm(YEARS, desc="Meetings"):
+    data = fetch_openf1("meetings", {"year": year}, verbose=False)
     for d in data:
         d["year"] = year
     all_meetings.extend(data)
 
-print(f"Total meetings: {len(all_meetings)}")
 write_bronze(all_meetings, "bronze_meetings")
 display(table("bronze_meetings").limit(5))
 
@@ -51,11 +56,10 @@ display(table("bronze_meetings").limit(5))
 
 # DBTITLE 0,Ingest Sessions
 all_sessions = []
-for year in YEARS:
-    data = fetch_openf1("sessions", {"year": year})
+for year in tqdm(YEARS, desc="Sessions"):
+    data = fetch_openf1("sessions", {"year": year}, verbose=False)
     all_sessions.extend(data)
 
-print(f"Total sessions: {len(all_sessions)}")
 write_bronze(all_sessions, "bronze_sessions")
 
 display(
@@ -88,10 +92,9 @@ print(f"Race sessions: {len(race_session_keys)}")
 
 # DBTITLE 0,Ingest Drivers
 all_drivers = []
-for sk in race_session_keys:
+for sk in tqdm(race_session_keys, desc="Drivers"):
     all_drivers.extend(fetch_openf1("drivers", {"session_key": sk}, verbose=False))
 
-print(f"Total driver-session records: {len(all_drivers)}")
 write_bronze(all_drivers, "bronze_drivers")
 
 display(
@@ -105,12 +108,9 @@ display(
 
 # DBTITLE 0,Ingest Laps
 all_laps = []
-for i, sk in enumerate(race_session_keys):
+for sk in tqdm(race_session_keys, desc="Laps"):
     all_laps.extend(fetch_openf1("laps", {"session_key": sk}, verbose=False))
-    if (i + 1) % 20 == 0:
-        print(f"  Progress: {i+1}/{len(race_session_keys)} sessions ({len(all_laps):,} laps)")
 
-print(f"Total laps: {len(all_laps):,}")
 write_bronze(all_laps, "bronze_laps")
 display(table("bronze_laps").limit(5))
 
@@ -118,10 +118,9 @@ display(table("bronze_laps").limit(5))
 
 # DBTITLE 0,Ingest Pit Stops
 all_pits = []
-for sk in race_session_keys:
+for sk in tqdm(race_session_keys, desc="Pit Stops"):
     all_pits.extend(fetch_openf1("pit", {"session_key": sk}, verbose=False))
 
-print(f"Total pit stops: {len(all_pits)}")
 write_bronze(all_pits, "bronze_pit_stops")
 display(table("bronze_pit_stops").limit(5))
 
@@ -129,10 +128,9 @@ display(table("bronze_pit_stops").limit(5))
 
 # DBTITLE 0,Ingest Weather
 all_weather = []
-for sk in race_session_keys:
+for sk in tqdm(race_session_keys, desc="Weather"):
     all_weather.extend(fetch_openf1("weather", {"session_key": sk}, verbose=False))
 
-print(f"Total weather records: {len(all_weather):,}")
 write_bronze(all_weather, "bronze_weather")
 display(table("bronze_weather").limit(5))
 
